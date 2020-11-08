@@ -1,108 +1,228 @@
 <template>
-  <div id="app">
-    <div class="content-wrapper">
-      <h1 data-test-logo>paper.ly</h1>
-      <p class="days-remaining" data-test-days-remaining>
-        <span>{{ daysRemaining }}</span> days remaining
-      </p>
-      <p class="rolls-remaining" data-test-rolls-remaining>
-        {{ rollsRemaining }} rolls remain
-      </p>
-      <p class="roll-rate" data-test-roll-rate>{{ rollRate }} rolls per day</p>
-      <div class="roll-commands">
-        <button
-          data-test-increment-rolls-remaining-button
-          @click="incrementRollsRemaining"
+  <section class="todoapp">
+    <header class="header">
+      <h1>todos</h1>
+      <input
+        class="new-todo"
+        autofocus
+        autocomplete="off"
+        placeholder="What needs to be done?"
+        v-model="newTodo"
+        @keyup.enter="addTodo"
+      />
+    </header>
+    <section class="main" v-show="todos.length" v-cloak>
+      <input
+        id="toggle-all"
+        class="toggle-all"
+        type="checkbox"
+        v-model="allDone"
+      />
+      <label for="toggle-all"></label>
+      <ul class="todo-list">
+        <li
+          v-for="todo in filteredTodos"
+          class="todo"
+          :key="todo.id"
+          :class="{ completed: todo.completed, editing: todo === editedTodo }"
         >
-          +
-        </button>
-        <button
-          data-test-decrement-rolls-remaining-button
-          @click="decrementRollsRemaining"
-        >
-          -
-        </button>
-      </div>
-    </div>
-  </div>
+          <div class="view">
+            <input class="toggle" type="checkbox" v-model="todo.completed" />
+            <label @dblclick="editTodo(todo)">{{ todo.title }}</label>
+            <button class="destroy" @click="removeTodo(todo)"></button>
+          </div>
+          <input
+            class="edit"
+            type="text"
+            v-model="todo.title"
+            v-todo-focus="todo === editedTodo"
+            @blur="doneEdit(todo)"
+            @keyup.enter="doneEdit(todo)"
+            @keyup.esc="cancelEdit(todo)"
+          />
+        </li>
+      </ul>
+    </section>
+    <footer class="footer" v-show="todos.length" v-cloak>°
+      <span class="todo-count">
+        <strong>{{ remaining }}</strong> {{ remaining | pluralize }} left
+      </span>
+      <ul class="filters">
+        <li>
+          <a href="#/all" :class="{ selected: visibility == 'all' }">All</a>
+        </li>
+        <li>
+          <a href="#/active" :class="{ selected: visibility == 'active' }"
+            >Active</a
+          >
+        </li>
+        <li>
+          <a href="#/completed" :class="{ selected: visibility == 'completed' }"
+            >Completed</a
+          >
+        </li>
+      </ul>
+      <button
+        class="clear-completed"
+        @click="removeCompleted"
+        v-show="todos.length > remaining"
+      >
+        Clear completed
+      </button>
+    </footer>
+  </section>
 </template>
 
 <script>
-import { mapState, mapActions, mapGetters } from "vuex";
-
-export default {
-  name: "App",
-  computed: {
-    ...mapState(["rollsRemaining", "rollRate"]),
-    ...mapGetters(["daysRemaining"])
+// localStorage persistence
+const STORAGE_KEY = "todos-vuejs-2.0";
+const todoStorage = {
+  fetch() {
+    const todos = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    todos.forEach(function(todo, index) {
+      todo.id = index;
+    });
+    todoStorage.uid = todos.length;
+    return todos;
   },
+  save(todos) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  }
+};
+// visibility filters
+const filters = {
+  all(todos) {
+    return todos;
+  },
+  active(todos) {
+    return todos.filter(function(todo) {
+      return !todo.completed;
+    });
+  },
+  completed(todos) {
+    return todos.filter(function(todo) {
+      return todo.completed;
+    });
+  }
+};
+// app Vue instance
+export default {
+  // app initial state
+  data() {
+    return {
+      todos: todoStorage.fetch(),
+      newTodo: "",
+      editedTodo: null,
+      visibility: "all"
+    };
+  },
+
+  mounted() {
+    window.addEventListener("hashchange", this._onHashChange);
+  },
+  // watch todos change for localStorage persistence
+  watch: {
+    todos: {
+      handler(todos) {
+        todoStorage.save(todos);
+      },
+      deep: true
+    }
+  },
+
+  // computed properties
+  // http://vuejs.org/guide/computed.html
+  computed: {
+    filteredTodos() {
+      return filters[this.visibility](this.todos);
+    },
+    remaining() {
+      return filters.active(this.todos).length;
+    },
+    allDone: {
+      get() {
+        return this.remaining === 0;
+      },
+      set(value) {
+        this.todos.forEach(function(todo) {
+          todo.completed = value;
+        });
+      }
+    }
+  },
+
+  filters: {
+    pluralize(n) {
+      return n === 1 ? "item" : "items";
+    }
+  },
+
+  // methods that implement data logic.
+  // note there's no DOM manipulation here at all.
   methods: {
-    ...mapActions(["incrementRollsRemaining", "decrementRollsRemaining"])
+    addTodo() {
+      const value = this.newTodo && this.newTodo.trim();
+      if (!value) {
+        return;
+      }
+      this.todos.push({
+        id: todoStorage.uid++,
+        title: value,
+        completed: false
+      });
+      this.newTodo = "";
+    },
+
+    removeTodo(todo) {
+      this.todos.splice(this.todos.indexOf(todo), 1);
+    },
+
+    editTodo(todo) {
+      this.beforeEditCache = todo.title;
+      this.editedTodo = todo;
+    },
+
+    doneEdit(todo) {
+      if (!this.editedTodo) {
+        return;
+      }
+      this.editedTodo = null;
+      todo.title = todo.title.trim();
+      if (!todo.title) {
+        this.removeTodo(todo);
+      }
+    },
+
+    cancelEdit(todo) {
+      this.editedTodo = null;
+      todo.title = this.beforeEditCache;
+    },
+
+    removeCompleted() {
+      this.todos = filters.active(this.todos);
+    },
+
+    // handle routing
+    _onHashChange() {
+      const visibility = window.location.hash.replace(/#\/?/, "");
+      if (filters[visibility]) {
+        this.visibility = visibility;
+      } else {
+        window.location.hash = "";
+        this.visibility = "all";
+      }
+    }
+  },
+
+  // a custom directive to wait for the DOM to be updated
+  // before focusing on the input field.
+  // http://vuejs.org/guide/custom-directive.html
+  directives: {
+    "todo-focus": function(el, binding) {
+      if (binding.value) {
+        el.focus();
+      }
+    }
   }
 };
 </script>
-
-<style lang="scss">
-* {
-  box-sizing: border-box;
-}
-body {
-  align-items: center;
-  background-color: #ddd;
-  background-image: linear-gradient(
-      0deg,
-      hsla(0, 0%, 100%, 0.9),
-      hsla(0, 0%, 100%, 0.6)
-    ),
-    linear-gradient(90deg, hsla(0, 0%, 100%, 0.9), hsla(0, 0%, 100%, 0.6));
-  background-size: 25px 25px;
-  color: #333;
-  display: flex;
-  font-family: Arial, sans-serif;
-  justify-content: center;
-  margin-top: -5%;
-  min-height: 100vh;
-}
-.content-wrapper {
-  width: 100%;
-}
-#app {
-  display: flex;
-  width: 300px;
-  h1 {
-    color: #ccc;
-    font-size: 16px;
-    left: 24px;
-    position: absolute;
-    top: 16px;
-  }
-  .days-remaining {
-    border-bottom: 1px solid #ccc;
-    padding: 24px;
-    text-align: center;
-    text-transform: uppercase;
-    width: 100%;
-    span {
-      display: block;
-      font-size: 256px;
-      font-weight: 700;
-    }
-  }
-  .roll-rate,
-  .rolls-remaining {
-    color: #666;
-  }
-  .roll-commands {
-    display: flex;
-    justify-content: space-around;
-    width: 100%;
-    button {
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 64px;
-      padding: 24px;
-    }
-  }
-}
-</style>
